@@ -271,5 +271,19 @@
       			"ServiceRoleArn" : { "Ref" : "RoleArn" }
       		}
       	}
+    },
+    "Outputs" : {
+    	"LoadBalancerId" : {
+    		"Description" : "The Elastic Load Balancer Id",
+    		"Value" : { "Ref": "LoadBalancer" }
+    	},
+    	"LoadBalancerDNSEntry" : {
+    		"Description" : "The Elastic Load Balancer DNS entry",
+    		"Value" : { "Fn::GetAtt" : [ "LoadBalancer", "DNSName" ] }
+    	},
+    	"CodeDeployApplication" : {
+    		"Description" : "CodeDeploy Application",
+    		"Value" : { "Ref" : "CodeDeployApplication" }
+    	}
     }
 }
