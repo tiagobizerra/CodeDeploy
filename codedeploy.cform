@@ -1,0 +1,275 @@
+{
+	 "AWSTemplateFormatVersion": "2010-09-09",
+	 "Description": "MyTraining for CodeDeploy: Template to create an infrastructure with EC2 + ELB + ASG + CodeDeploy: deploying an application from a github respository",
+
+   	 "Mappings" : {
+    	"NatRegionMap" : {
+      	"us-east-1"      : { "AMI" : "ami-08111162" },
+      	"us-west-1"      : { "AMI" : "ami-1b0f7d7b" },
+      	"us-west-2"      : { "AMI" : "ami-c229c0a2" },
+      	"eu-west-1"      : { "AMI" : "ami-31328842" },
+      	"eu-central-1"   : { "AMI" : "ami-e2df388d" },
+      	"sa-east-1"      : { "AMI" : "ami-1e159872" },
+      	"ap-southeast-1" : { "AMI" : "ami-e90dc68a" },
+      	"ap-southeast-2" : { "AMI" : "ami-f2210191" },
+      	"ap-northeast-2" : { "AMI" : "ami-6598510b" },
+      	"cn-north-1"     : { "AMI" : "ami-49e22924" },
+      	"ap-northeast-1" : { "AMI" : "ami-27d6e626" }
+    	}
+  	},
+
+  	"Parameters" : {
+   		"KeyName" : {
+      		"Description" : "Name of an existing EC2 KeyPair to enable SSH access to the web server",
+      		"Type": "AWS::EC2::KeyPair::KeyName",
+      		"Default" : "tiaglima-key-pair-euwest1"
+    	},
+    	"LoadBalancerPort" : {
+      		"Description" : "Port number for the LoadBalancer",
+      		"Type": "String",
+      		"MinLength" : "1",
+      		"MaxLength" : "5",
+      		"AllowedPattern" : "[0-9]*",
+      		"ConstraintDescription" : "Can contain only numbers",
+      		"Default" : "80"
+    	},
+    	"Repository" : {
+    		"Description" : "Git Hub Repository to get the Application",
+    		"Type" : "String",
+    		"Default" : "tiagobizerra/sampleapp"
+    	},
+    	"CommitId" : {
+    		"Description" : "Commit id at Git Hub repository",
+    		"Type" : "String",
+    		"Default" : "12a78f9da63f68d805dd679cae61110d9705f6ad"	
+    	},
+    	"RoleArn" : {
+    		"Description" : "CodeDeploy RoleArn",
+    		"Type" : "String",
+    		"Default" : "arn:aws:iam::857285822921:role/CodeDeploySampleStack-s8g0h-CodeDeployTrustRole-ILEXJDHWNLND"
+    	},
+    	"InstanceRoleArn" : {
+    		"Description" : "CodeDeploy InstanceRoleArn",
+    		"Type" : "String",
+    		"Default" : "arn:aws:iam::857285822921:instance-profile/CodeDeploySampleStack-s8g0h-InstanceRoleInstanceProfile-1RUZ1L584T5QP"
+    	},
+    	"SecurityGroupId" : {
+      		"Description" : "Security group that will be used to create instances",
+      		"Type" : "AWS::EC2::SecurityGroup::Id",
+      		"Default" : "sg-bec7a5da"
+    	}
+  	},
+
+  	"Resources" : {
+  		"AutoScalingGroup" : {
+  			"DependsOn" : ["LaunchConfiguration"],
+  			"Type" : "AWS::AutoScaling::AutoScalingGroup",
+  			"Properties" : {
+  				"AvailabilityZones" : { "Fn::GetAZs" : "" },
+  				"DesiredCapacity" : "2",
+  				"HealthCheckType" : "EC2",
+  				"LaunchConfigurationName" : { "Ref" : "LaunchConfiguration" },
+  				"LoadBalancerNames" : [ { "Ref" : "LoadBalancer" } ],
+  				"MinSize": "2",
+  				"MaxSize": "3",
+  				"MetricsCollection" : [ { "Granularity" : "1Minute" } ]
+  			},
+  			"CreationPolicy" : {
+  				"ResourceSignal" : {
+  					"Timeout" : "PT15M",
+  					"Count" : "2"
+  				}
+  			},
+  			"UpdatePolicy" : {
+  				"AutoScalingRollingUpdate" : {
+         			"MinInstancesInService" : "2",
+          			"MaxBatchSize" : "2",
+          			"PauseTime" : "PT15M",
+          			"WaitOnResourceSignals" : "true"
+        		}
+  			}
+  		},
+  		"ScaleUp" : {
+  			"Type" : "AWS::AutoScaling::ScalingPolicy",
+  			"Properties" : {
+  				"AdjustmentType" : "ChangeInCapacity",
+  				"AutoScalingGroupName" : { "Ref" : "AutoScalingGroup" },
+  				"Cooldown" : "60",
+  				"ScalingAdjustment" : "1"
+  			}
+  		},
+  		"ScaleDown" : {
+  			"Type" : "AWS::AutoScaling::ScalingPolicy",
+  			"Properties" : {
+  				"AdjustmentType" : "ChangeInCapacity",
+  				"AutoScalingGroupName" : { "Ref" : "AutoScalingGroup" },
+  				"Cooldown" : "60",
+  				"ScalingAdjustment" : "-1"
+  			}
+  		},
+    	"CPUAlarmHigh" : {
+      		"Type" : "AWS::CloudWatch::Alarm",
+      		"Properties" : {
+        		"AlarmDescription" : "Scale-up if CPU > 90% for 3 minutes",
+		        "MetricName" : "CPUUtilization",
+        		"Namespace" : "AWS/EC2",
+		        "Statistic" : "Average",
+		        "Period" : "180",
+		        "EvaluationPeriods" : "2",
+        		"Threshold" : "90",
+		        "AlarmActions" : [ { "Ref" : "ScaleUp" } ],
+        		"Dimensions" : [
+		          {
+        		    "Name" : "AutoScalingGroupName",
+            		"Value" : { "Ref" : "AutoScalingGroup" }
+          		}
+        		],
+        		"ComparisonOperator" : "GreaterThanThreshold"
+      		}
+    	},
+	    "CPUAlarmLow" : {
+    		"Type" : "AWS::CloudWatch::Alarm",
+     		"Properties" : {
+       		"AlarmDescription" : "Scale-down if CPU < 70% for 3 minutes",
+		        "MetricName" : "CPUUtilization",
+        		"Namespace" : "AWS/EC2",
+		        "Statistic" : "Average",
+		        "Period" : "180",
+		        "EvaluationPeriods" : "2",
+        		"Threshold" : "70",
+		        "AlarmActions" : [ { "Ref" : "ScaleDown" } ],
+		        "Dimensions" : [
+		        {
+        		    "Name" : "AutoScalingGroupName",
+            		"Value" : { "Ref" : "AutoScalingGroup" }
+          		}
+        		],
+        		"ComparisonOperator" : "LessThanThreshold"
+      		}
+    	},
+  		"LaunchConfiguration" : {
+  			"Type" : "AWS::AutoScaling::LaunchConfiguration",
+  			"Metadata" : {
+        		"AWS::CloudFormation::Init" : {
+          			"configSets" : {
+            			"Install" : [ "Install", "Files", "Services" ]
+          				},
+          			"Install" : {
+            			"packages" : {
+              				"yum" : {
+                				"httpd" : [],
+                				"php" : []
+              				}
+            			}
+          			},
+          			"Files" : { 
+              			"files" : {
+              				"/var/www/html/index.php" : {
+                			"content" : { "Fn::Join" : [ "", [
+                			"<?php\n",
+                			"phpinfo();\n",
+                			"?>\n"
+                			]]
+                			},
+              				"mode" : "000600",
+              				"owner" : "apache",
+              				"group" : "apache"
+              				}
+            			}
+          			},
+          			"Services" : {
+            			"services" : {
+              				"sysvinit" : {
+                				"httpd" : { "enabled" : "true", "ensureRunning" : "true" }
+              				}
+            			}
+          			}
+        		}
+      		},
+      		"Properties" : {
+      			"KeyName" : { "Ref" : "KeyName" },
+      			"ImageId" : { "Fn::FindInMap" : [ "NatRegionMap", { "Ref" : "AWS::Region"}, "AMI" ]},
+      			"SecurityGroups" : [ { "Ref": "SecurityGroupId"} ],
+      			"IamInstanceProfile" : { "Ref" : "InstanceRoleArn" },
+      			"InstanceType" : "t2.micro",
+      		    "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+             		"#!/bin/bash -xe\n",
+		             "exec &> /tmp/userdata.log\n\n",
+        		     "yum update -y aws-cfn-bootstrap\n",
+		             "# Install the files and packages from the metadata\n",
+		             "yum update -y\n",
+   		             "# Install the dependencies and CodeDeploy agent\n",
+		             "yum install wget ruby -y\n",
+		             "cd /home/ec2-user\n",
+		             "wget https://aws-codedeploy-eu-west-1.s3.amazonaws.com/latest/install\n",
+		             "chmod +x ./install\n",
+		             "./install auto\n",
+        		     "/opt/aws/bin/cfn-init -v ",
+		             "         --stack ", { "Ref" : "AWS::StackName" },
+        		     "         --resource LaunchConfiguration ",
+		             "         --configsets Install ",
+        		     "         --region ", { "Ref" : "AWS::Region" }, "\n",
+		             "/opt/aws/bin/cfn-signal -e $? ",
+        		     "         --stack ", { "Ref" : "AWS::StackName" },
+		             "         --resource AutoScalingGroup ",
+        		     "         --region ", { "Ref" : "AWS::Region" }, "\n"
+		            ]]}}
+      		}
+      	},
+      	"LoadBalancer" : {
+      		"Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+      		"Properties" : {
+      			"Listeners" : [ {
+      				"InstancePort" : { "Ref" : "LoadBalancerPort" },
+      				"InstanceProtocol" : "HTTP",
+      				"LoadBalancerPort" : { "Ref" : "LoadBalancerPort" },
+      				"Protocol" : "HTTP"
+      			}],
+      			"AvailabilityZones" : { "Fn::GetAZs" : "" },
+ 				"CrossZone" : "true",
+      			"ConnectionDrainingPolicy" : {
+  					"Enabled" : "true",
+  					"Timeout" : "300"
+  				},
+      			"Tags" : [ { "Key" : "Application", "Value" : { "Ref" : "AWS::StackName" } } ]
+      		}
+      	},
+      	"CodeDeployApplication" : {
+      		"Type" : "AWS::CodeDeploy::Application",
+      		"Properties" : {
+      			"ApplicationName" : "MyTrainingAppbyCFN"
+      		}
+      	},
+      	"DeploymentConfig" : {
+      		"Type" : "AWS::CodeDeploy::DeploymentConfig",
+      		"Properties" : {
+      			"DeploymentConfigName" : "MyTrainingAppDeployment",
+      			"MinimumHealthyHosts" : { 
+      				"Type" : "FLEET_PERCENT",
+      				"Value" : "33"
+      			}
+      		}
+      	},
+      	"DeploymentGroup" : {
+      		"DependsOn" : ["LoadBalancer", "AutoScalingGroup"],
+      		"Type" : "AWS::CodeDeploy::DeploymentGroup",
+      		"Properties" : {
+      			"ApplicationName" : "MyTrainingAppbyCFN",
+      			"AutoScalingGroups" : [ { "Ref" : "AutoScalingGroup" } ],
+      			"DeploymentConfigName" : "MyTrainingAppDeployment",
+      			"Deployment" : {
+      				"Description" : "Mytraining deployment",
+      				"IgnoreApplicationStopFailures" : "true",
+      				"Revision" : {
+      					"RevisionType" : "GitHub",
+      					"GitHubLocation" : {
+      						"CommitId" : { "Ref" : "CommitId" },
+      						"Repository" : { "Ref" : "Repository" }
+      					}
+      				}
+      			},
+      			"ServiceRoleArn" : { "Ref" : "RoleArn" }
+      		}
+      	}
+    }
+}
