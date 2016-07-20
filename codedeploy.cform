@@ -51,7 +51,7 @@
     	"InstanceRoleArn" : {
     		"Description" : "CodeDeploy InstanceRoleArn",
     		"Type" : "String",
-    		"Default" : "arn:aws:iam::857285822921:instance-profile/CodeDeploySampleStack-s8g0h-InstanceRoleInstanceProfile-1RUZ1L584T5QP"
+    		"Default" : "arn:aws:iam::857285822921:role/CodeDeploy_DemoApplication"
     	},
     	"SecurityGroupId" : {
       		"Description" : "Security group that will be used to create instances",
